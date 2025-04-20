@@ -1,0 +1,48 @@
+from pathlib import Path
+from functools import lru_cache
+from typing import Optional
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Compute the project root and .env file absolute path
+BASE_DIR = Path(__file__).resolve().parents[2]  # Project root: /Users/iqbal/Desktop/Code/Platform
+ENV_PATH = BASE_DIR / "src" / "config" / ".env"
+
+
+class BaseConfig(BaseSettings):
+    ENV_STATE: Optional[str] = None
+
+    """Loads the dotenv file. Including this is necessary to get
+    pydantic to load a .env file."""
+    model_config = SettingsConfigDict(env_file=str(ENV_PATH), extra="ignore")
+
+
+class GlobalConfig(BaseConfig):
+    MONGODB_URI: Optional[str] = None
+    DB_NAME: Optional[str] = None
+    JWT_SECRET: Optional[str] = None
+    JWT_ALGORITHM: Optional[str] = None
+    ACCESS_TOKEN_EXPIRE_MINUTES: Optional[int] = 1
+
+
+class DevConfig(GlobalConfig):
+    model_config = SettingsConfigDict(env_prefix="DEV_")
+
+
+class ProdConfig(GlobalConfig):
+    model_config = SettingsConfigDict(env_prefix="PROD_")
+
+
+class TestConfig(GlobalConfig):
+    MONGODB_URI: str = "mongodb://localhost:27017"
+
+    model_config = SettingsConfigDict(env_prefix="TEST_")
+
+
+@lru_cache()
+def get_config(env_state: str):
+    """Instantiate config based on the environment."""
+    configs = {"dev": DevConfig, "prod": ProdConfig, "test": TestConfig}
+    return configs[env_state]()
+
+
+config = get_config(BaseConfig().ENV_STATE)

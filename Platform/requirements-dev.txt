@@ -1,0 +1,8 @@
+FastAPI
+uvicorn
+pydantic
+motor
+python-jose
+bcrypt
+pytest
+httpx
