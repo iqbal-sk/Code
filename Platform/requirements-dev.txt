@@ -1,8 +1,13 @@
-FastAPI
+fastapi
 uvicorn
-pydantic
+pydantic[email]
 motor
 python-jose
 bcrypt
 pytest
 httpx
+odmantic
+PyJWT
+pydantic_settings
+asgi-correlation-id
+python-json-logger
