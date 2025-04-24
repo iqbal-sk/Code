@@ -7,7 +7,6 @@ if config.ENV_STATE == "prod":
     handlers = ["default", "rotating_file"]
 
 def configure_logging() -> None:
-    print(f'Configuring Logging')
     dictConfig({
         "version": 1,
         "disable_existing_loggers": False,
