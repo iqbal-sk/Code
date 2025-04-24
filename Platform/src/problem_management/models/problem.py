@@ -44,7 +44,8 @@ class Problem(Model):
     createdAt: datetime = Field(default_factory=datetime.utcnow)
     updatedAt: datetime = Field(default_factory=datetime.utcnow)
     model_config = ConfigDict(
-        arbitrary_types_allowed=True
+        arbitrary_types_allowed=True,
+        collection="problems"
     )
 
     # ─── validators ─────────────────────────────
