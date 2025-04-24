@@ -22,7 +22,10 @@ class GlobalConfig(BaseConfig):
     JWT_SECRET: Optional[str] = None
     JWT_ALGORITHM: Optional[str] = None
     ACCESS_TOKEN_EXPIRE_MINUTES: Optional[int] = 1
-
+    LISTING_FILE: Optional[str] = None
+    PROBLEM_COLLECTION: Optional[str] = None
+    LISTING_URL: Optional[str] = None
+    BASE_SITE: Optional[str] = None
 
 class DevConfig(GlobalConfig):
     model_config = SettingsConfigDict(env_prefix="DEV_")
