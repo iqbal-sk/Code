@@ -3,7 +3,7 @@ from urllib.parse import urljoin
 from bs4 import BeautifulSoup
 from slugify import slugify
 from markdownify import markdownify as md
-from Platform.src.problem_management.models.problem import (
+from Platform.src.problem_management.models import (
     Problem,
     Description,
     Constraints,
