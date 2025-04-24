@@ -104,7 +104,7 @@ class ScrapingService:
             purpose=purpose,
             isPublic=False
         )
-        res = self.assets_collection.insert_one(asset.model_dump())
+        res = self.assets_collection.insert_one(asset.model_dump(exclude={'id'}))
         return res.inserted_id
 
     # ——— Fetch & store test cases ———
@@ -150,7 +150,7 @@ class ScrapingService:
                         isLargeFile=is_large,
                         fileReferences=refs,
                     )
-                    result = self.testcases_collection.insert_one(tc.model_dump())
+                    result = self.testcases_collection.insert_one(tc.model_dump(exclude={'id'}))
                     logger.info("Inserted test case %d for CSES Problem ID %s: %s", i + 1, cses_id, result.inserted_id)
         except zipfile.BadZipFile:
             logger.error("Invalid ZIP format received for CSES Problem ID: %s", cses_id)
