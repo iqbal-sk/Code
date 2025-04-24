@@ -2,9 +2,9 @@ from pydantic import ConfigDict
 from datetime import datetime
 from typing import Optional
 from bson import ObjectId
-from odmantic import Model, Field
+from odmantic import Model, Field, EmbeddedModel
 
-class FileReferences(Model):
+class FileReferences(EmbeddedModel):
     inputFileId: ObjectId
     outputFileId: ObjectId
 
