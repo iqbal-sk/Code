@@ -1,0 +1,17 @@
+import datetime
+from typing import Optional
+from pydantic import ConfigDict
+from odmantic import Model, Field
+class Asset(Model):
+    filename: str
+    contentType: str
+    size: int
+    isS3: bool
+    filePath: str
+    s3Key: Optional[str]
+    pId: Optional[str]
+    purpose: str
+    isPublic: bool
+    uploadedAt: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
+
+    model_config = ConfigDict(collection="assets")
