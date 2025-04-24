@@ -6,3 +6,8 @@ python-jose
 bcrypt
 pytest
 httpx
+boto3
+requests
+bs4
+markdownify
+python-slugify
