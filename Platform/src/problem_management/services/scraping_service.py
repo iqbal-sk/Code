@@ -1,97 +1,82 @@
-"""
-scraping_service.py
+#!/usr/bin/env python3
 
-Scrapes the CSES Introductory Problems list and upserts each problem document
-into MongoDB.  Uses the project-wide logging configuration defined in
-Platform.src.config.logging_config.
-"""
 import sys
-import time
-import logging
 import io
 import zipfile
+import logging
+import asyncio
 from urllib.parse import urljoin
 
 import requests
 from bs4 import BeautifulSoup
-from pymongo import MongoClient
-from pymongo.errors import DuplicateKeyError
 
 from Platform.src.config.config import config, DevConfig
-from Platform.src.config.logging_config import configure_logging  # ← your dictConfig
+from Platform.src.config.logging_config import configure_logging
+from Platform.src.core.dependencies import get_engine
 from Platform.src.problem_management.services.utils import build_problem
 from Platform.src.problem_management.services.storage_adapters import LocalAdapter
+from Platform.src.problem_management.models import Problem, Asset, TestCase
 
-from Platform.src.problem_management.models import Asset
-from Platform.src.problem_management.models import TestCase, FileReferences
-
+# ─── Setup logging ───────────────────────────────────────────────────────────────
 configure_logging()
 logger = logging.getLogger("Platform.scraping_service")
-
+if isinstance(config, DevConfig):
+    logger.setLevel(logging.DEBUG)
 
 class ScrapingService:
-    """Download the CSES ‘Introductory Problems’ list and store each problem."""
-
-    def __init__(self) -> None:
-        self.client = MongoClient(config.MONGODB_URI)
-        self.db = self.client[config.DB_NAME]
-        self.problem_coll = self.db[config.PROBLEM_COLLECTION]
-        self.testcases_collection = self.db[config.TESTCASE_COLLECTION]
-        self.assets_collection = self.db[config.ASSETS_COLLECTION]
+    def __init__(self):
+        self.engine = get_engine()  # type: ignore
         self.base_url = config.BASE_SITE
         self.listing_url = config.LISTING_URL
         self.session = requests.Session()
         self.session.cookies.set("PHPSESSID", config.SESSION_ID)
         self.storage = LocalAdapter()
 
-    def scrape_problems(self) -> None:
-        """Scrape problems and insert them into MongoDB."""
+    async def scrape_problems(self) -> None:
+        """Fetch CSES Intro Problems & insert each Problem only once."""
         try:
-            listing_page = requests.get(self.listing_url, timeout=10)
-            listing_page.raise_for_status()
-            logger.info("Downloaded listing page: %s", self.listing_url)
-        except Exception as exc:  # network, timeout, HTTPError, …
-            logger.critical("Failed to download problem list (%s)", exc, exc_info=True)
+            resp = self.session.get(self.listing_url, timeout=10)
+            resp.raise_for_status()
+        except Exception as exc:
+            logger.critical("Failed to download problem list: %s", exc, exc_info=True)
             sys.exit(1)
 
-        soup = BeautifulSoup(listing_page.text, "html.parser")
-
+        soup = BeautifulSoup(resp.text, "html.parser")
         intro_h2 = soup.find("h2", string=lambda s: s and "Introductory Problems" in s)
         if not intro_h2:
-            logger.critical("Introductory Problems section not found on listing page.")
+            logger.critical("‘Introductory Problems’ header not found.")
             sys.exit(1)
 
-        intro_ul = intro_h2.find_next("ul", class_="task-list")
-        tasks = intro_ul.find_all("li", class_="task")[:config.SCRAPE_LIMIT] if intro_ul else []
-        if not tasks:
-            logger.critical("No tasks found in Introductory Problems.")
-            sys.exit(1)
-
-        logger.info("Found %d tasks in Introductory Problems.", len(tasks))
+        tasks = intro_h2.find_next("ul", class_="task-list") \
+                       .find_all("li", class_="task")[: config.SCRAPE_LIMIT]
 
         for li in tasks:
-            raw_href = li.a["href"].strip()
-            url = urljoin(self.base_url, raw_href)
+            url = urljoin(self.base_url, li.a["href"].strip())
             title = li.a.text.strip()
+            problem_doc = build_problem(url, title)
 
-            try:
-                problem_doc = build_problem(url, title)
-                self.problem_coll.insert_one(
-                    problem_doc.model_dump(by_alias=True, exclude={"id"}, exclude_none=True)
-                )
-                logger.info("Inserted '%s'", title)
+            # 1) Check if this problem already exists
+            existing = await self.engine.find_one(
+                Problem, Problem.pId == problem_doc.pId
+            )
+            if existing:
+                logger.debug("Skipped Problem '%s' (already exists)", title)
+            else:
+                # 2) Insert new
+                saved = await self.engine.save(problem_doc)
+                logger.info("Saved new Problem '%s' → %s", title, saved.id)
 
-            except DuplicateKeyError:
-                # document with the same pId or slug already exists
-                logger.debug("Skipped (already present): '%s'", title)
+            await asyncio.sleep(5)
 
-            except Exception as exc:
-                # generic failure—log full traceback for debugging
-                logger.error("Failed to insert '%s' — %s", title, exc, exc_info=True)
 
-            time.sleep(5)  # be polite to the CSES server
-
-    def store_file_and_create_asset(self, file_bytes: bytes, cses_id: str, filename: str, purpose: str):
+    async def store_file_and_create_asset(
+        self,
+        file_bytes: bytes,
+        cses_id: str,
+        filename: str,
+        purpose: str
+    ) -> object:
+        """Persist a large test-case file as an Asset, return its ObjectId."""
         path = self.storage.save(file_bytes, filename)
         asset = Asset(
             filename=filename,
@@ -104,74 +89,146 @@ class ScrapingService:
             purpose=purpose,
             isPublic=False
         )
-        res = self.assets_collection.insert_one(asset.model_dump(exclude={'id'}))
-        return res.inserted_id
 
-    # ——— Fetch & store test cases ———
-    def fetch_and_store_testcases(self, cses_id: str):
-        logger.info("Requesting test case ZIP for CSES Problem ID: %s", cses_id)
+        # Check asset uniqueness (e.g. by path & pId & purpose)
+        existing = await self.engine.find_one(
+            Asset,
+            Asset.filePath == path,
+            Asset.pId == cses_id,
+            Asset.purpose == purpose
+        )
+        if existing:
+            return existing.id
+
+        saved_asset = await self.engine.save(asset)
+        return saved_asset.id
+
+
+    async def store_file_and_create_asset(
+        self,
+        file_bytes: bytes,
+        cses_id: str,
+        filename: str,
+        purpose: str
+    ) -> object:
+        path = self.storage.save(file_bytes, filename)
+        asset = Asset(
+            filename=filename,
+            contentType="text/plain",
+            size=len(file_bytes),
+            isS3=False,
+            filePath=path,
+            s3Key=None,
+            pId=cses_id,
+            purpose=purpose,
+            isPublic=False
+        )
+        # dedupe by path + pId + purpose
+        existing = await self.engine.find_one(
+            Asset,
+            Asset.filePath == path,
+            Asset.pId == cses_id,
+            Asset.purpose == purpose
+        )
+        if existing:
+            return existing.id
+
+        saved = await self.engine.save(asset)
+        return saved.id
+
+    async def fetch_and_store_testcases(self, cses_id: str) -> None:
+        """Download, unzip & store all testcases, skipping duplicates."""
+        logger.info("Downloading test ZIP for %s", cses_id)
         url = config.TEST_CASES + str(cses_id)
-        res = self.session.get(url)
-        soup = BeautifulSoup(res.content, "html.parser")
-        token = soup.find("input", {"name": "csrf_token"})
-        if not token:
-            logger.error("CSRF token not found. Are you logged in?")
+        entry = self.session.get(url)
+        soup = BeautifulSoup(entry.content, "html.parser")
+        token_el = soup.find("input", {"name": "csrf_token"})
+        if not token_el:
+            logger.error("No CSRF token; are you logged in?")
             return
 
-        download = self.session.post(url, data={"csrf_token": token["value"], "download": "true"})
+        download = self.session.post(url, data={
+            "csrf_token": token_el["value"],
+            "download": "true"
+        })
         if download.status_code != 200:
-            logger.error("Failed to download test case ZIP for CSES Problem ID %s – Status %d", cses_id, download.status_code)
+            logger.error("Failed to download ZIP (%d)", download.status_code)
             return
 
-        try:
-            with zipfile.ZipFile(io.BytesIO(download.content)) as z:
-                ins = sorted(f for f in z.namelist() if f.endswith(".in"))
-                outs = sorted(f for f in z.namelist() if f.endswith(".out"))
-                for i, in_name in enumerate(ins):
-                    out_name = outs[i]
-                    inp_text = z.read(in_name).decode().strip()
-                    out_text = z.read(out_name).decode().strip()
-                    inp_b = inp_text.encode()
-                    out_b = out_text.encode()
-                    is_large = len(inp_b) >= 500 or len(out_b) >= 500
+        # get the raw Motor collection for TestCase
+        tc_coll: AsyncIOMotorCollection = self.engine.get_collection(TestCase)
 
-                    if is_large:
-                        in_id = self.store_file_and_create_asset(inp_b, cses_id, in_name, "test_input")
-                        out_id = self.store_file_and_create_asset(out_b, cses_id, out_name, "test_output")
-                        refs = FileReferences(inputFileId=in_id, outputFileId=out_id)
-                    else:
-                        refs = None
+        with zipfile.ZipFile(io.BytesIO(download.content)) as z:
+            ins = sorted(f for f in z.namelist() if f.endswith(".in"))
+            outs = sorted(f for f in z.namelist() if f.endswith(".out"))
 
+            for idx, in_name in enumerate(ins):
+                inp = z.read(in_name).decode().strip()
+                out = z.read(outs[idx]).decode().strip()
+                inp_b, out_b = inp.encode(), out.encode()
+                is_large = len(inp_b) >= 500 or len(out_b) >= 500
+
+                if is_large:
+                    in_id = await self.store_file_and_create_asset(
+                        inp_b, cses_id, in_name, "test_input"
+                    )
+                    out_id = await self.store_file_and_create_asset(
+                        out_b, cses_id, outs[idx], "test_output"
+                    )
+                    refs = {"inputFileId": in_id, "outputFileId": out_id}
+
+                    # raw Mongo filter for dict sub-field
+                    filter_q = {
+                        "pId": cses_id,
+                        "isLargeFile": True,
+                        "fileReferences.inputFileId": in_id
+                    }
+
+                else:
+                    refs = None
+                    filter_q = {
+                        "pId": cses_id,
+                        "isLargeFile": False,
+                        "input": inp,
+                        "expectedOutput": out
+                    }
+
+                existing_tc = await tc_coll.find_one(filter_q)
+                if existing_tc:
+                    logger.debug("Skipped TC %d for %s (already exists)", idx + 1, cses_id)
+                else:
                     tc = TestCase(
                         pId=cses_id,
-                        input=None if is_large else inp_text,
-                        expectedOutput=None if is_large else out_text,
+                        input=None if is_large else inp,
+                        expectedOutput=None if is_large else out,
                         isHidden=True,
                         isLargeFile=is_large,
                         fileReferences=refs,
                     )
-                    result = self.testcases_collection.insert_one(tc.model_dump(exclude={'id'}))
-                    logger.info("Inserted test case %d for CSES Problem ID %s: %s", i + 1, cses_id, result.inserted_id)
-        except zipfile.BadZipFile:
-            logger.error("Invalid ZIP format received for CSES Problem ID: %s", cses_id)
+                    saved_tc = await self.engine.save(tc)
+                    logger.info("Saved TC %d for %s → %s", idx + 1, cses_id, saved_tc.id)
 
-    def scrape_test_cases(self):
-        res = self.session.get(config.PROBLEM_LIST)
-        soup = BeautifulSoup(res.content, "html.parser")
+        await asyncio.sleep(2)
+
+    async def scrape_test_cases(self) -> None:
+        """Walk the Intro Problems list & fetch testcases for each."""
+        resp = self.session.get(config.PROBLEM_LIST)
+        soup = BeautifulSoup(resp.content, "html.parser")
         section = soup.find("h2", string="Introductory Problems")
-        lst = section.find_next("ul")
-        for task in lst.find_all("li", class_="task")[:config.SCRAPE_LIMIT]:
-            href = task.find("a")["href"]
-            cses_id = href.rstrip("/").split("/")[-1]
-            self.fetch_and_store_testcases(cses_id)
-            time.sleep(2)
+        tasks = section.find_next("ul") \
+                       .find_all("li", class_="task")[: config.SCRAPE_LIMIT]
+
+        for task in tasks:
+            cses_id = task.find("a")["href"].rstrip("/").split("/")[-1]
+            await self.fetch_and_store_testcases(cses_id)
 
 
+# ─── Entrypoint ───────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    # Set DEBUG level when running in development mode
-    if isinstance(config, DevConfig):
-        logger.setLevel(logging.DEBUG)
+    svc = ScrapingService()
 
-    scraping_service = ScrapingService()
-    scraping_service.scrape_problems()
-    scraping_service.scrape_test_cases()
+    async def main():
+        await svc.scrape_problems()
+        await svc.scrape_test_cases()
+
+    asyncio.run(main())
