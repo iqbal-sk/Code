@@ -5,18 +5,18 @@ import io
 import zipfile
 import logging
 import asyncio
+from bson import ObjectId
 from urllib.parse import urljoin
-
 import requests
 from bs4 import BeautifulSoup
-
+from typing import List
+import Platform.src.problem_management.models
 from Platform.src.config.config import config, DevConfig
 from Platform.src.config.logging_config import configure_logging
 from Platform.src.core.dependencies import get_engine
-from Platform.src.problem_management.services.utils import build_problem
 from Platform.src.problem_management.services.storage_adapters import LocalAdapter
 from Platform.src.problem_management.models import Problem, Asset, TestCase
-
+from Platform.src.problem_management.services.utils import *
 # ─── Setup logging ───────────────────────────────────────────────────────────────
 configure_logging()
 logger = logging.getLogger("Platform.scraping_service")
@@ -32,10 +32,80 @@ class ScrapingService:
         self.session.cookies.set("PHPSESSID", config.SESSION_ID)
         self.storage = LocalAdapter()
 
+    async def build_problem(self, task_url: str, title: str) -> Problem:
+        """Scrape a single CSES problem page, store any images as Assets, and return a Problem."""
+        # Extract problem ID from the URL
+        p_id = task_url.rstrip("/").split("/")[-1]
+
+        # Fetch the problem HTML
+        resp = requests.get(task_url, timeout=10)
+        resp.raise_for_status()
+        body = BeautifulSoup(resp.text, "html.parser").select_one("div.content")
+
+        # Parse description and markdown
+        html_desc, md_desc = extract_problem_statement(body)
+        image_links = extract_image_links(html_desc)
+
+        # Extract resource limits, I/O blocks, and constraint bullets
+        full_text = body.get_text("\n", strip=True)
+        time_ms, mem_mb = extract_limits(full_text)
+        input_block, output_block = extract_io_blocks(body)
+        bullet_list = extract_constraint_bullets(body)
+
+        # Build sample test cases from <pre> tags
+        pres = body.select("pre")
+        samples: list[SampleTestCase] = []
+        for i in range(0, len(pres), 2):
+            if i + 1 >= len(pres):
+                break
+            samples.append(
+                SampleTestCase(
+                    input=pres[i].get_text("\n").rstrip(),
+                    expectedOutput=pres[i + 1].get_text("\n").rstrip(),
+                    explanation="",
+                )
+            )
+
+        # Save each image URL as an Asset and collect their ObjectIds
+        asset_ids: list[ObjectId] = []
+        for url in image_links:
+            asset = Asset(
+                filename=url.split("/")[-1],
+                contentType="image/png",  # or detect MIME dynamically
+                size=0,  # optionally fetch Content-Length
+                isS3=False,
+                filePath=url,
+                s3Key=None,
+                pId=p_id,
+                purpose="problem-image",
+                isPublic=True,
+            )
+            saved_asset = await self.engine.save(asset)
+            asset_ids.append(saved_asset.id)
+
+        # Construct and return the Problem document
+        return Problem(
+            pId=p_id,
+            title=title,
+            slug=slugify(title),
+            description=Description(markdown=md_desc, html=html_desc),
+            constraints=Constraints(
+                timeLimit_ms=time_ms,
+                memoryLimit_mb=mem_mb,
+                inputFormat=input_block,
+                outputFormat=output_block,
+                pConstraints=bullet_list,
+            ),
+            sampleTestCases=samples,
+            tags=None,
+            visibility="public",
+            assets=asset_ids,
+        )
+
     async def scrape_problems(self) -> None:
         """Fetch CSES Intro Problems & insert each Problem only once."""
         try:
-            resp = self.session.get(self.listing_url, timeout=10)
+            resp = requests.get(self.listing_url, timeout=10)
             resp.raise_for_status()
         except Exception as exc:
             logger.critical("Failed to download problem list: %s", exc, exc_info=True)
@@ -53,7 +123,7 @@ class ScrapingService:
         for li in tasks:
             url = urljoin(self.base_url, li.a["href"].strip())
             title = li.a.text.strip()
-            problem_doc = build_problem(url, title)
+            problem_doc = await self.build_problem(url, title)
 
             # 1) Check if this problem already exists
             existing = await self.engine.find_one(
@@ -104,38 +174,6 @@ class ScrapingService:
         return saved_asset.id
 
 
-    async def store_file_and_create_asset(
-        self,
-        file_bytes: bytes,
-        cses_id: str,
-        filename: str,
-        purpose: str
-    ) -> object:
-        path = self.storage.save(file_bytes, filename)
-        asset = Asset(
-            filename=filename,
-            contentType="text/plain",
-            size=len(file_bytes),
-            isS3=False,
-            filePath=path,
-            s3Key=None,
-            pId=cses_id,
-            purpose=purpose,
-            isPublic=False
-        )
-        # dedupe by path + pId + purpose
-        existing = await self.engine.find_one(
-            Asset,
-            Asset.filePath == path,
-            Asset.pId == cses_id,
-            Asset.purpose == purpose
-        )
-        if existing:
-            return existing.id
-
-        saved = await self.engine.save(asset)
-        return saved.id
-
     async def fetch_and_store_testcases(self, cses_id: str) -> None:
         """Download, unzip & store all testcases, skipping duplicates."""
         logger.info("Downloading test ZIP for %s", cses_id)
@@ -156,7 +194,7 @@ class ScrapingService:
             return
 
         # get the raw Motor collection for TestCase
-        tc_coll: AsyncIOMotorCollection = self.engine.get_collection(TestCase)
+        tc_coll = self.engine.get_collection(TestCase)
 
         with zipfile.ZipFile(io.BytesIO(download.content)) as z:
             ins = sorted(f for f in z.namelist() if f.endswith(".in"))
