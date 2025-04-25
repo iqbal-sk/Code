@@ -52,6 +52,8 @@ class ScrapingService:
         input_block, output_block = extract_io_blocks(body)
         bullet_list = extract_constraint_bullets(body)
 
+        problemId = ObjectId()
+
         # Build sample test cases from <pre> tags
         pres = body.select("pre")
         samples: list[SampleTestCase] = []
@@ -79,12 +81,14 @@ class ScrapingService:
                 pId=p_id,
                 purpose="problem-image",
                 isPublic=True,
+                problemId=problemId
             )
             saved_asset = await self.engine.save(asset)
             asset_ids.append(saved_asset.id)
 
         # Construct and return the Problem document
         return Problem(
+            id=problemId,
             pId=p_id,
             title=title,
             slug=slugify(title),
