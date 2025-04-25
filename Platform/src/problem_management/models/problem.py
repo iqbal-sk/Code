@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import List, Optional
-from odmantic import Field, Model, EmbeddedModel
+from odmantic import Field, Model, EmbeddedModel, ObjectId
 from pydantic import ConfigDict, field_validator, model_validator
 from slugify import slugify
 
@@ -30,7 +30,7 @@ class Statistics(EmbeddedModel):
 
 
 class Problem(Model):
-    pId: int
+    pId: str
     title: str
     slug: str = Field(default="")
     description: Description
@@ -40,7 +40,7 @@ class Problem(Model):
     tags: Optional[List[str]] = None
     statistics: Statistics = Field(default_factory=Statistics)
     visibility: str = Field(default="public")
-    assets: Optional[List[str]] = None
+    assets: Optional[List[ObjectId]] = None
     createdAt: datetime = Field(default_factory=datetime.utcnow)
     updatedAt: datetime = Field(default_factory=datetime.utcnow)
     model_config = ConfigDict(
