@@ -30,7 +30,7 @@ class Statistics(EmbeddedModel):
 
 
 class Problem(Model):
-    pId: str
+    pId: int
     title: str
     slug: str = Field(default="")
     description: Description
