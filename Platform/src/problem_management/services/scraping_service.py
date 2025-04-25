@@ -6,11 +6,6 @@ import zipfile
 import logging
 import asyncio
 from bson import ObjectId
-from urllib.parse import urljoin
-import requests
-from bs4 import BeautifulSoup
-from typing import List
-import Platform.src.problem_management.models
 from Platform.src.config.config import config, DevConfig
 from Platform.src.config.logging_config import configure_logging
 from Platform.src.core.dependencies import get_engine
@@ -72,6 +67,7 @@ class ScrapingService:
         asset_ids: list[ObjectId] = []
         for url in image_links:
             asset = Asset(
+                problemId=problemId,
                 filename=url.split("/")[-1],
                 contentType="image/png",  # or detect MIME dynamically
                 size=0,  # optionally fetch Content-Length
@@ -80,8 +76,7 @@ class ScrapingService:
                 s3Key=None,
                 pId=p_id,
                 purpose="problem-image",
-                isPublic=True,
-                problemId=problemId
+                isPublic=True
             )
             saved_asset = await self.engine.save(asset)
             asset_ids.append(saved_asset.id)
@@ -146,7 +141,8 @@ class ScrapingService:
     async def store_file_and_create_asset(
         self,
         file_bytes: bytes,
-        cses_id: str,
+        cses_id: int,
+        problemId: ObjectId,
         filename: str,
         purpose: str
     ) -> object:
@@ -154,6 +150,7 @@ class ScrapingService:
         path = self.storage.save(file_bytes, filename)
         asset = Asset(
             filename=filename,
+            problemId=problemId,
             contentType="text/plain",
             size=len(file_bytes),
             isS3=False,
@@ -178,7 +175,7 @@ class ScrapingService:
         return saved_asset.id
 
 
-    async def fetch_and_store_testcases(self, cses_id: str) -> None:
+    async def fetch_and_store_testcases(self, cses_id: int, problemId: ObjectId) -> None:
         """Download, unzip & store all testcases, skipping duplicates."""
         logger.info("Downloading test ZIP for %s", cses_id)
         url = config.TEST_CASES + str(cses_id)
@@ -212,10 +209,10 @@ class ScrapingService:
 
                 if is_large:
                     in_id = await self.store_file_and_create_asset(
-                        inp_b, cses_id, in_name, "test_input"
+                        inp_b, cses_id, problemId, in_name, "test_input"
                     )
                     out_id = await self.store_file_and_create_asset(
-                        out_b, cses_id, outs[idx], "test_output"
+                        out_b, cses_id, problemId, outs[idx], "test_output"
                     )
                     refs = {"inputFileId": in_id, "outputFileId": out_id}
 
@@ -241,6 +238,7 @@ class ScrapingService:
                 else:
                     tc = TestCase(
                         pId=cses_id,
+                        problemId=problemId,
                         input=None if is_large else inp,
                         expectedOutput=None if is_large else out,
                         isHidden=True,
@@ -254,15 +252,12 @@ class ScrapingService:
 
     async def scrape_test_cases(self) -> None:
         """Walk the Intro Problems list & fetch testcases for each."""
-        resp = self.session.get(config.PROBLEM_LIST)
-        soup = BeautifulSoup(resp.content, "html.parser")
-        section = soup.find("h2", string="Introductory Problems")
-        tasks = section.find_next("ul") \
-                       .find_all("li", class_="task")[: config.SCRAPE_LIMIT]
 
-        for task in tasks:
-            cses_id = task.find("a")["href"].rstrip("/").split("/")[-1]
-            await self.fetch_and_store_testcases(cses_id)
+        existing_problems = await self.engine.find(Problem, {})
+        pid_to_obj: dict[int, ObjectId] = {p.pId: p.id for p in existing_problems}
+
+        for cses_id, problemId in pid_to_obj.items():
+            await self.fetch_and_store_testcases(cses_id, problemId)
 
 
 # ─── Entrypoint ───────────────────────────────────────────────────────────────
