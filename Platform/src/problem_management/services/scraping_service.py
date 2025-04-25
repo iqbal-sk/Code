@@ -35,7 +35,7 @@ class ScrapingService:
     async def build_problem(self, task_url: str, title: str) -> Problem:
         """Scrape a single CSES problem page, store any images as Assets, and return a Problem."""
         # Extract problem ID from the URL
-        p_id = task_url.rstrip("/").split("/")[-1]
+        p_id = int(task_url.rstrip("/").split("/")[-1])
 
         # Fetch the problem HTML
         resp = requests.get(task_url, timeout=10)
