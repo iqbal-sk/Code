@@ -1,16 +1,7 @@
 from pydantic import ConfigDict
 from datetime import datetime
-from typing import Optional
-from bson import ObjectId
-from odmantic import Model, Field, EmbeddedModel
-
-class FileReferences(EmbeddedModel):
-    inputFileId: ObjectId
-    outputFileId: ObjectId
-
-    model_config = ConfigDict(
-        arbitrary_types_allowed=True
-    )
+from typing import Optional, Dict, Any
+from odmantic import Model, Field
 
 class TestCase(Model):
     pId: str
@@ -18,7 +9,7 @@ class TestCase(Model):
     expectedOutput: Optional[str] = None
     isHidden: bool = False
     isLargeFile: bool = False
-    fileReferences: Optional[FileReferences] = None
+    fileReferences: Optional[Dict[str, Any]] = None
     createdAt: datetime = Field(default_factory=datetime.utcnow)
 
     model_config = ConfigDict(
