@@ -40,7 +40,7 @@ class Problem(Model):
     tags: Optional[List[str]] = None
     statistics: Statistics = Field(default_factory=Statistics)
     visibility: str = Field(default="public")
-    assets: Optional[List[ObjectId]] = None
+    assets: Optional[List[ObjectId]] = []
     createdAt: datetime = Field(default_factory=datetime.utcnow)
     updatedAt: datetime = Field(default_factory=datetime.utcnow)
     model_config = ConfigDict(
