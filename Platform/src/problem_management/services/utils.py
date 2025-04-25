@@ -68,7 +68,7 @@ def extract_io_blocks(body):
 
 
 def build_problem(task_url: str, title: str) -> dict:
-    p_id = int(task_url.rstrip("/").split("/")[-1])
+    p_id = task_url.rstrip("/").split("/")[-1]
     page = requests.get(task_url, timeout=10)
     page.raise_for_status()
     body = BeautifulSoup(page.text, "html.parser").select_one("div.content")
