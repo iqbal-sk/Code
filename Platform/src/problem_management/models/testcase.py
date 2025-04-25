@@ -1,10 +1,11 @@
 from pydantic import ConfigDict
 from datetime import datetime
 from typing import Optional, Dict, Any
-from odmantic import Model, Field
+from odmantic import Model, Field, ObjectId
 
 class TestCase(Model):
-    pId: str
+    pId: int
+    problemId: ObjectId
     input: Optional[str] = None
     expectedOutput: Optional[str] = None
     isHidden: bool = False
