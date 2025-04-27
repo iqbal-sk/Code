@@ -1,3 +1,4 @@
+import contextlib
 import asyncio
 import tempfile
 import shutil
@@ -216,7 +217,6 @@ async def run_in_sandbox(
 
 
 if __name__ == "__main__":
-    import contextlib
 
     async def _demo():
         code_java = 'public class Main { public static void main(String[] args){ System.out.print("hello"); }}'
