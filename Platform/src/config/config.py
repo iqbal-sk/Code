@@ -26,7 +26,7 @@ class GlobalConfig(BaseConfig):
     REDIS_URL: Optional[str] = None
     TERMINAL: Optional[List[str]] = []
     ACCEPTED_LANGUAGES: List[str] = []
-    SUBMISSION_QUEUE_KEY: str = None
+    SUBMISSION_QUEUE_KEY: Optional[str] = None
 
     @field_validator("TERMINAL", "ACCEPTED_LANGUAGES", mode="before")
     def _split_str_to_list(cls, v):
