@@ -8,6 +8,9 @@ import contextvars
 from logging.config import dictConfig
 from judge_service.config.config import config
 
+if not config.LOG_DIR or not isinstance(config.LOG_DIR, str) or not config.LOG_DIR.strip():
+    config.LOG_DIR = os.path.join(os.getcwd(), "logs")  # Default to a "logs" directory in the current working directory
+    print(f"Warning: 'config.LOG_DIR' is not set or invalid. Using default: {config.LOG_DIR}", file=sys.stderr)
 os.makedirs(config.LOG_DIR, exist_ok=True)
 
 # Context variable to hold a request/job ID
