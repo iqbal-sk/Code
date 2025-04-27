@@ -1,7 +1,8 @@
 from pathlib import Path
 from functools import lru_cache
-from typing import Optional
+from typing import Optional, List
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import field_validator
 
 # Compute the project root and .env file absolute path
 BASE_DIR = Path(__file__).resolve().parents[2]  # Project root: /Users/iqbal/Desktop/Code/Platform
@@ -22,6 +23,16 @@ class GlobalConfig(BaseConfig):
     JWT_SECRET: Optional[str] = None
     JWT_ALGORITHM: Optional[str] = None
     ACCESS_TOKEN_EXPIRE_MINUTES: Optional[int] = 1
+    REDIS_URL: Optional[str] = None
+    TERMINAL: Optional[List[str]] = []
+    ACCEPTED_LANGUAGES: List[str] = []
+    SUBMISSION_QUEUE_KEY: str = None
+
+    @field_validator("TERMINAL", "ACCEPTED_LANGUAGES", mode="before")
+    def _split_str_to_list(cls, v):
+        if isinstance(v, str):
+            return [item.strip() for item in v.split(",") if item.strip()]
+        return v
 
 
 class DevConfig(GlobalConfig):
