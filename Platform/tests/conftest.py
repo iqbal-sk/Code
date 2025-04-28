@@ -14,21 +14,21 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from Platform.src.config.config import config
 
 
-@pytest.fixture()
+@pytest.fixture(scope="session")
 def anyio_backend():
     return "asyncio"
 
-@pytest.fixture()
+@pytest.fixture(scope="session")
 def client():
     yield TestClient(app)
 
 
-@pytest.fixture()
+@pytest.fixture(scope="session")
 async def async_client(client):
     async with AsyncClient(transport=ASGITransport(app), base_url=client.base_url) as ac:
         yield ac
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 async def db_client():
     """
     Provides an instance of the Motor database client.
