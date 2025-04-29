@@ -4,8 +4,8 @@ from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from Platform.src.user_management.router import router as user_management_router
+from Platform.src.problem_management.router.problem_router import router as problem_management_router
 from Platform.src.core.lifespan import lifespan
-
 from asgi_correlation_id import CorrelationIdMiddleware
 
 from Platform.src.user_management.exceptions import *
@@ -25,7 +25,7 @@ app.add_middleware(
 # Include user_management endpoints at the root level (no prefix)
 app.include_router(user_management_router, tags=["users"])
 # ...existing code for additional middleware/routers if any...
-
+app.include_router(problem_management_router)
 # Exception handlers
 
 @app.exception_handler(UserExistsException)
