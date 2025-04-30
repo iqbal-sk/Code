@@ -48,4 +48,4 @@ async def fetch_testcases(
 
     # Completion log
     logger.info("Completed fetch_testcases for problem_id=%s", problem_id)
-    return data
+    return data['testCases']
