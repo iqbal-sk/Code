@@ -18,3 +18,5 @@ markdownify
 python-slugify
 httpx
 pytest-asyncio
+redis[asyncio]
+sse-starlette
