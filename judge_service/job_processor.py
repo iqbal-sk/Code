@@ -121,6 +121,18 @@ async def process_job(
                     and result.get("stdout", "").strip() == exp.strip()
             )
             logger.debug("Stage 4: Test %d verdict=%s passed=%s", idx, verdict, passed)
+
+            details.append(
+                TestDetail(
+                    test_case_id=str(case_id),
+                    verdict=verdict or "",
+                    status="passed" if passed else "failed",
+                    stdout=result.get("stdout", ""),
+                    runtime_ms=result.get("runtime_ms", 0.0),
+                    memory_bytes=result.get("memory_bytes", 0),
+                    error_message=result.get("stderr", None),
+                )
+            )
         except Exception as error:
             passed = False
             result = {
