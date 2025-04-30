@@ -16,3 +16,5 @@ requests
 bs4
 markdownify
 python-slugify
+httpx
+pytest-asyncio
