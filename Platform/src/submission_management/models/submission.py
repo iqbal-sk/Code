@@ -48,4 +48,4 @@ class Submission(Model):
     timeLimitMs: int
     memoryLimitB: int
 
-    model_config = ConfigDict(collection="users")
+    model_config = ConfigDict(collection="submissions")
