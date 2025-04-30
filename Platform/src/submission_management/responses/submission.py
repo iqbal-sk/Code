@@ -1,8 +1,9 @@
-from pydantic import BaseModel, ConfigDict, Field
-from typing import Optional
+from pydantic import BaseModel, Field, ConfigDict
+from typing import Optional, List
 from datetime import datetime
-from typing import Dict, Any, List
 from bson import ObjectId
+
+from Platform.src.submission_management.models import SubmissionResult  # adjust this import to your package structure
 
 class SubmissionResponse(BaseModel):
     submissionId: str = Field(..., alias="id")
@@ -14,14 +15,16 @@ class SubmissionResponse(BaseModel):
     status: str
     submittedAt: datetime
     completedAt: Optional[datetime]
-    result: Optional[Dict[str, Any]]
+    result: Optional[SubmissionResult]
     canceled: bool
     createdAt: datetime
     updatedAt: datetime
 
-    model_config = ConfigDict(validate_by_name=True,
-                              arbitrary_types_allowed=True,
-                              json_encoders={ObjectId: lambda oid: str(oid)})
+    model_config = ConfigDict(
+        validate_by_name=True,
+        arbitrary_types_allowed=True,
+        json_encoders={ObjectId: lambda oid: str(oid)}
+    )
 
 
 class SubmissionResponseList(BaseModel):
@@ -30,6 +33,9 @@ class SubmissionResponseList(BaseModel):
     page: int
     limit: int
 
-    model_config = ConfigDict(validate_by_name=True,
-                              arbitrary_types_allowed=True,
-                              json_encoders={ObjectId: lambda oid: str(oid)})
+    model_config = ConfigDict(
+        validate_by_name=True,
+        arbitrary_types_allowed=True,
+        json_encoders={ObjectId: lambda oid: str(oid)}
+    )
+
