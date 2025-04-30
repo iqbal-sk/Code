@@ -22,7 +22,19 @@ class GlobalConfig(BaseConfig):
     DB_NAME: Optional[str] = None
     JWT_SECRET: Optional[str] = None
     JWT_ALGORITHM: Optional[str] = None
+    PROBLEM_LIST: Optional[str] = None
+    ASSETS_COLLECTION: Optional[str] = None
+    TESTCASE_COLLECTION: Optional[str] = None
+    SESSION_ID: Optional[str] = None
+    TEST_CASES: Optional[str] = None
+    LOCAL_TEST_ASSETS: Optional[str] = None
     ACCESS_TOKEN_EXPIRE_MINUTES: Optional[int] = 1
+    LISTING_FILE: Optional[str] = None
+    PROBLEM_COLLECTION: Optional[str] = None
+    LISTING_URL: Optional[str] = None
+    BASE_SITE: Optional[str] = None
+    SCRAPE_LIMIT: int = 0
+
     REDIS_URL: Optional[str] = None
     TERMINAL: Optional[List[str]] = []
     ACCEPTED_LANGUAGES: List[str] = []

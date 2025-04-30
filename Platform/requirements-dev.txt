@@ -11,5 +11,12 @@ PyJWT
 pydantic_settings
 asgi-correlation-id
 python-json-logger
+boto3
+requests
+bs4
+markdownify
+python-slugify
+httpx
+pytest-asyncio
 redis[asyncio]
 sse-starlette
