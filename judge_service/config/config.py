@@ -73,13 +73,13 @@ class TestConfig(GlobalConfig):
 # ─── Factory to pick the right config based on ENV_STATE ────────────────────────
 @lru_cache()
 def get_config(env_state: Optional[str] = None) -> GlobalConfig:
-    state = (env_state or BaseConfig().ENV_STATE or "dev").lower()
+
     mapping = {
         "dev": DevConfig,
         "prod": ProdConfig,
         "test": TestConfig,
     }
-    return mapping.get(state, GlobalConfig)()
+    return mapping.get(env_state, GlobalConfig)()
 
 # ─── Singleton instance you can import elsewhere ────────────────────────────────
 config = get_config(BaseConfig().ENV_STATE)
