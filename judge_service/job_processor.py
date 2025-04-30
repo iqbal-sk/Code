@@ -1,15 +1,16 @@
 import json
 from datetime import datetime, timezone
-from typing import Any, Dict
+from typing import Any, Dict, List
 import httpx
 from bson import ObjectId
 from odmantic import AIOEngine
+from fastapi import HTTPException, status
 
 from judge_service.config.config import config
 from judge_service.testcase_client import fetch_testcases
 from judge_service.sandbox import run_in_sandbox
 from redis.asyncio import Redis
-from Platform.src.submission_management.models.submission import Submission
+from Platform.src.submission_management.models import Submission, TestDetail, SubmissionResult
 
 import logging
 logger = logging.getLogger(__name__)
@@ -54,13 +55,35 @@ async def process_job(
         logger.error("Stage 3: Failed to fetch test cases for problem %s: %s", problem_id, error, exc_info=True)
         # Mark failed in Mongo and notify
         submission = await engine.find_one(Submission, Submission.id == obj_id)
+
+        now2 = datetime.now(timezone.utc)
         if submission:
+            # wrap the fetch error in a single TestDetail
+            err_detail = TestDetail(
+                test_case_id="fetch_error",
+                verdict="error",
+                status="failed",
+                stdout="",
+                runtime_ms=0.0,
+                memory_bytes=0,
+                error_message=f"Could not fetch test cases: {error}"
+            )
+            result_model = SubmissionResult(
+                total_tests=0,
+                passed_tests=0,
+                max_runtime_ms=0.0,
+                max_memory_bytes=0,
+                test_details=[err_detail],
+            )
+
             submission.status = "failed"
-            submission.result = {"compileError": f"Could not fetch test cases: {error}"}
-            submission.completedAt = now
-            submission.updatedAt = now
+            submission.result = result_model
+            submission.completedAt = now2
+            submission.updatedAt = now2
             await engine.save(submission)
-            logger.debug("Stage 3: Mongo status set to 'failed' for %s", submission_id)
+            logger.debug("Stage 3: Saved fetch-error result for %s", submission_id)
+
+        # notify frontend that we're in a terminal failed state
         await redis.publish(submission_id, json.dumps({"status": "failed"}))
         logger.debug("Stage 3: Published 'failed' to Redis channel %s", submission_id)
         return
@@ -73,6 +96,7 @@ async def process_job(
     for idx, tc in enumerate(testcases, start=1):
         case_id = ObjectId(tc["caseId"])
         logger.debug("Stage 4: Running test %d/%d (caseId=%s)", idx, len(testcases), case_id)
+        details: List[TestDetail] = []
 
         if not tc.get("isRemote", False):
             inp = tc.get("input", "")
@@ -89,11 +113,26 @@ async def process_job(
                 timeout_sec=submission.timeLimitMs / 1000,
                 memory_bytes=submission.memoryLimitB,
             )
-            if result.get('verdict') == 'OK' and submission.memoryLimitB < result.get('memory_bytes', 0):
-                result['verdict'] = 'MemoryLimitExceeded'
-            verdict = result.get('verdict')
-            passed = (verdict == 'OK' and result.get('stdout', '').strip() == exp.strip())
+
+            # post-process memory-limit verdict...
+            verdict = result.get("verdict")
+            passed = (
+                    verdict == "OK"
+                    and result.get("stdout", "").strip() == exp.strip()
+            )
             logger.debug("Stage 4: Test %d verdict=%s passed=%s", idx, verdict, passed)
+
+            details.append(
+                TestDetail(
+                    test_case_id=str(case_id),
+                    verdict=verdict or "",
+                    status="passed" if passed else "failed",
+                    stdout=result.get("stdout", ""),
+                    runtime_ms=result.get("runtime_ms", 0.0),
+                    memory_bytes=result.get("memory_bytes", 0),
+                    error_message=result.get("stderr", None),
+                )
+            )
         except Exception as error:
             passed = False
             result = {
@@ -105,15 +144,18 @@ async def process_job(
             }
             logger.error("Stage 4: Error executing test %d for submission %s: %s", idx, submission_id, error, exc_info=True)
 
-        details.append({
-            "testCaseId": str(case_id),
-            "verdict": result.get("verdict", ""),
-            "status": "passed" if passed else "failed",
-            "stdout": result.get("stdout", ""),
-            "runtime_ms": result.get("runtime_ms", 0),
-            "memory_bytes": result.get("memory_bytes", 0),
-            "errorMessage": result.get("stderr", "")
-        })
+            # build a TestDetail model (uses your aliases under the hood)
+            details.append(
+                TestDetail(
+                    test_case_id=str(case_id),
+                    verdict=verdict or "",
+                    status="passed" if passed else "failed",
+                    stdout=result.get("stdout", ""),
+                    runtime_ms=result.get("runtime_ms", 0.0),
+                    memory_bytes=result.get("memory_bytes", 0),
+                    error_message=result.get("stderr", None),
+                )
+            )
 
         if not passed:
             all_passed = False
@@ -122,25 +164,34 @@ async def process_job(
     # Stage 5: Aggregate and write final result
     final_status = "success" if all_passed else "failed"
     logger.info("Stage 5: Aggregating results, final status=%s", final_status)
-    result_doc = {
-        "totalTests": len(testcases),
-        "passedTests": sum(1 for d in details if d["status"] == "passed"),
-        "max_runtime_ms": max((d["runtime_ms"] for d in details), default=0),
-        "max_memory_bytes": max((d["memory_bytes"] for d in details), default=0),
-        "testDetails": details,
-    }
+
+    result_model = SubmissionResult(
+        total_tests=len(testcases),
+        passed_tests=sum(1 for d in details if d.status == "passed"),
+        max_runtime_ms=max((d.runtime_ms for d in details), default=0.0),
+        max_memory_bytes=max((d.memory_bytes for d in details), default=0),
+        test_details=details,
+    )
 
     now2 = datetime.now(timezone.utc)
     submission = await engine.find_one(Submission, Submission.id == obj_id)
-    if submission:
-        submission.status = final_status
-        submission.result = result_doc
-        submission.completedAt = now2
-        submission.updatedAt = now2
-        await engine.save(submission)
-        logger.debug("Stage 5: Saved final result for submission %s", submission_id)
+    if not submission:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Submission not found when writing result"
+        )
+
+    submission.status = final_status
+    submission.result = result_model  # <— typed, validated model
+    submission.completedAt = now2
+    submission.updatedAt = now2
+    await engine.save(submission)
+    logger.debug("Stage 5: Saved final result for submission %s", submission_id)
 
     # Stage 6: Notify terminal state
-    logger.info("Stage 6: Publishing final status '%s' to Redis channel %s", final_status, submission_id)
+    logger.info(
+        "Stage 6: Publishing final status '%s' to Redis channel %s",
+        final_status, submission_id
+    )
     await redis.publish(submission_id, json.dumps({"status": final_status}))
     logger.info("Stage 6: Completed processing job %s", submission_id)
