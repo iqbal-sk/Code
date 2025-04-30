@@ -47,3 +47,5 @@ class Submission(Model):
     updatedAt: datetime
     timeLimitMs: int
     memoryLimitB: int
+
+    model_config = ConfigDict(collection="users")
