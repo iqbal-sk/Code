@@ -39,7 +39,7 @@ async def test_read_problem_not_found(async_client: AsyncClient):
 @pytest.mark.anyio
 async def test_read_problem_invalid_id(async_client: AsyncClient):
     response = await async_client.get("/api/problems/invalid_id")
-    assert response.status_code == 400 or response.status_code == 404
+    assert response.status_code in (400, 404)
 
 #Valid ID returns correct problem data
 @pytest.mark.anyio
