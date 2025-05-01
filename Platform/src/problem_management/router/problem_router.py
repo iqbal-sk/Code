@@ -9,8 +9,8 @@ from Platform.src.problem_management.responses.problem import ProblemDetailRespo
 from Platform.src.problem_management.responses.problem_list import ProblemListResponse
 
 router = APIRouter(
-    prefix="/api/problems",
-    tags=["problem"],
+    prefix="/api/v1/problems",
+    tags=["problems"],
 )
 
 @router.get("/", response_model=ProblemListResponse)

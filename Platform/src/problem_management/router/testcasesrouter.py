@@ -20,7 +20,7 @@ from Platform.src.problem_management.responses.testcases import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
-    prefix="/api/problems/{problem_id}/test-cases",
+    prefix="/api/v1/problems/{problem_id}/test-cases",
     tags=["test-cases"],
 )
 

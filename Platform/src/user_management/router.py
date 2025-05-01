@@ -4,7 +4,7 @@ from Platform.src.user_management.schemas import UserCreate, UserLogin, UserOut
 from Platform.src.user_management.services import create_user, authenticate_user
 from Platform.src.core.dependencies import engine_dep
 
-router = APIRouter(prefix="/users", tags=["users"])
+router = APIRouter(prefix="/api/v1/users", tags=["users"])
 
 @router.post("/register", response_model=UserOut)
 async def register(user: UserCreate, engine: AIOEngine = Depends(engine_dep)):
