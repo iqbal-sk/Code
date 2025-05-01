@@ -1,6 +1,7 @@
 # File: Platform/src/problem_management/responses/problem.py
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import List, Dict, Any, Optional
+from bson import ObjectId
 
 # ─── Nested DTOs for embedded models ────────────────────────────
 class DescriptionResponse(BaseModel):
@@ -32,14 +33,24 @@ class ProblemSummaryResponse(BaseModel):
     """
     Lightweight view for listing problems.
     """
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int = Field(alias='pId')
+    model_config = ConfigDict(from_attributes=True,
+                              arbitrary_types_allowed=True,
+                              json_encoders={ObjectId: lambda oid: str(oid)},
+                              )
+    id: str = Field(alias='id')
+    pId: int = Field(alias='pId')
     title: str
     slug: str
     difficulty: Optional[str]
     tags: Optional[List[str]]
     acceptance_rate: Optional[float] = Field(default=None, alias='acceptanceRate')
+
+    @field_validator('id', mode='before')
+    @classmethod
+    def _convert_objectid(cls, v):
+        if isinstance(v, ObjectId):
+            return str(v)
+        return v
 
 class ProblemDetailResponse(ProblemSummaryResponse):
     """
@@ -51,3 +62,22 @@ class ProblemDetailResponse(ProblemSummaryResponse):
     statistics: StatisticsResponse
     assets: Optional[List[str]]
     visibility: str
+
+    model_config = ConfigDict(from_attributes=True,
+                              arbitrary_types_allowed=True
+                              )
+
+    @field_validator('id', mode='before')
+    @classmethod
+    def _convert_objectid_id(cls, v):
+        if isinstance(v, ObjectId):
+            return str(v)
+        return v
+
+    @field_validator('assets', mode='before')
+    @classmethod
+    def _convert_objectid_assets(cls, v):
+        if isinstance(v, list) and all(isinstance(i, ObjectId) for i in v):
+            a = [ str(i) for i in v]
+            return [ str(i) for i in v]
+        return v
