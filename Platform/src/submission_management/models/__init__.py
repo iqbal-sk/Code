@@ -1,3 +1,3 @@
-from .submission import Submission, SubmissionResult
+from .submission import Submission, SubmissionResult, TestDetail
 
-__all__ = ['Submission', 'SubmissionResult']
+__all__ = ['Submission', 'SubmissionResult', 'TestDetail']
