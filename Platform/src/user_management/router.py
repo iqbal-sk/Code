@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends
 from odmantic import AIOEngine
-from Platform.src.user_management.schemas import UserCreate, UserLogin, UserOut
+from Platform.src.user_management.schemas import UserCreate, UserLogin, UserOut, Token
 from Platform.src.user_management.services import create_user, authenticate_user
 from Platform.src.core.dependencies import engine_dep
 
@@ -13,6 +13,6 @@ async def register(user: UserCreate, engine: AIOEngine = Depends(engine_dep)):
     user_dict["_id"] = str(new_user.id)
     return user_dict
 
-@router.post("/login")
+@router.post("/login", response_model=Token)
 async def login(user: UserLogin, engine: AIOEngine = Depends(engine_dep)):
     return await authenticate_user(user, engine)

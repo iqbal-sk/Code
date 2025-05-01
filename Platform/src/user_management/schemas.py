@@ -44,3 +44,7 @@ class UserOut(UserBase):
     lastLogin: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True, validate_by_name=True)
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
