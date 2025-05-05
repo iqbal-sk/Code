@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator
 from typing import Optional, List
 from datetime import datetime
 from bson import ObjectId
@@ -38,4 +38,26 @@ class SubmissionResponseList(BaseModel):
         arbitrary_types_allowed=True,
         json_encoders={ObjectId: lambda oid: str(oid)}
     )
+
+class SubmissionSummary(BaseModel):
+    id: str = Field(..., alias="id")
+    userId: str = Field(..., alias="userId")
+    problemId: str = Field(..., alias="problemId")
+    pId: int
+    status: str
+    title: str
+    createdAt: Optional[datetime]
+
+    model_config = ConfigDict(
+        validate_by_name=True,
+        arbitrary_types_allowed=True,
+        json_encoders={ObjectId: lambda oid: str(oid)}
+    )
+
+    @field_validator('id', 'problemId', 'userId', mode='before')
+    @classmethod
+    def _convert_objectid(cls, v):
+        if isinstance(v, ObjectId):
+            return str(v)
+        return v
 
