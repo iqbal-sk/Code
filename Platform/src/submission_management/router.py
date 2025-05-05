@@ -13,23 +13,54 @@ from Platform.src.auth.dependencies import get_current_user
 from Platform.src.submission_management.requests import SubmissionCreate
 from Platform.src.submission_management.responses import (
     SubmissionResponse,
-    SubmissionResponseList,
+    SubmissionResponseList, SubmissionSummary,
 )
 from Platform.src.submission_management.service import (
     create_submission_service,
     subscribe_submission_events,
     get_user_submissions_for_problem,
+    get_user_submissions,
+    get_user_submissions_response,
 )
 
 logger = logging.getLogger(__name__)
 router = APIRouter(
-    prefix="/api/v1/submissions",
+    prefix="/api/v1",
     tags=["submissions"]
 )
 
 
+@router.get(
+    "/submissions",
+    response_model=List[SubmissionSummary],
+    summary="List your submissions (paginated)"
+)
+async def list_my_submissions(
+    page: int = Query(1, ge=1, description="Page number, starting from 1"),
+    limit: int = Query(5, ge=1, le=100, description="Items per page"),
+    current_user=Depends(get_current_user),
+    engine: AIOEngine = Depends(engine_dep),
+):
+    logger.info(
+        "START list_my_submissions – user=%s page=%d limit=%d",
+        current_user.id, page, limit
+    )
+    start_ts = time.monotonic()
+
+    response = await get_user_submissions_response(user_id=current_user.id,
+                                                   engine=engine, page=page, limit=limit)
+
+    if not response:
+        logger.warning("No submissions found – user=%s", current_user.id)
+
+
+    logger.debug("Response body: %r", response)
+    logger.info("END list_my_submissions – user=%s", current_user.id)
+    return response
+
+
 @router.post(
-    "",
+    "/submission",
     response_model=SubmissionResponse,
     status_code=status.HTTP_202_ACCEPTED,
     summary="Enqueue a new code submission"
@@ -88,7 +119,7 @@ async def create_submission(
 
 
 @router.get(
-    "/{submission_id}/events",
+    "/submissions/{submission_id}/events",
     summary="Stream live status updates for a submission"
 )
 async def submission_events(
@@ -125,7 +156,7 @@ async def submission_events(
 
 
 @router.get(
-    "/problems/{problem_id}",
+    "/submissions/problems/{problem_id}",
     response_model=SubmissionResponseList,
     summary="List your submissions for a specific problem (paginated)",
 )
