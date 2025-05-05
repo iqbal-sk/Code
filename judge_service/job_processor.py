@@ -91,13 +91,12 @@ async def process_job(
 
     # Stage 4: Execute test cases
     logger.info("Stage 4: Executing %d test cases in sandbox", len(testcases))
-    details = []
     all_passed = True
-
+    details: List[TestDetail] = []
     for idx, tc in enumerate(testcases, start=1):
         case_id = ObjectId(tc["caseId"])
         logger.debug("Stage 4: Running test %d/%d (caseId=%s)", idx, len(testcases), case_id)
-        details: List[TestDetail] = []
+
 
         if not tc.get("isRemote", False):
             inp = tc.get("input", "")
@@ -153,6 +152,7 @@ async def process_job(
                     error_message=result.get("stderr", None),
                 )
             )
+            logger.info("Stage 4: Test %d details: %s", idx, details)
         except Exception as error:
             passed = False
             result = {
@@ -184,6 +184,7 @@ async def process_job(
     # Stage 5: Aggregate and write final result
     final_status = "success" if all_passed else "failed"
     logger.info("Stage 5: Aggregating results, final status=%s", final_status)
+    logger.info("Stage 5: Test details: %s", details)
 
     result_model = SubmissionResult(
         total_tests=len(testcases),
