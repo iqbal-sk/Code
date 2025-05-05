@@ -3,7 +3,8 @@ import time
 import logging
 
 from fastapi import APIRouter, Depends, status, Query
-from odmantic import AIOEngine
+from fastapi.exceptions import HTTPException
+from odmantic import AIOEngine, ObjectId
 from redis.asyncio import Redis
 from typing import List
 from sse_starlette.sse import EventSourceResponse
@@ -19,9 +20,9 @@ from Platform.src.submission_management.service import (
     create_submission_service,
     subscribe_submission_events,
     get_user_submissions_for_problem,
-    get_user_submissions,
     get_user_submissions_response,
 )
+from Platform.src.submission_management.models import Submission
 
 logger = logging.getLogger(__name__)
 router = APIRouter(
@@ -208,4 +209,59 @@ async def list_my_submissions_for_problem(
     )
     logger.debug("Response body: %r", response)
     logger.info("END list_submissions – user=%s", current_user.id)
+    return response
+
+
+@router.get(
+    "/submissions/{submission_id}",
+    response_model=SubmissionResponse,
+    summary="Get details of a specific submission"
+)
+async def get_submission(
+    submission_id: str,
+    current_user=Depends(get_current_user),
+    engine: AIOEngine = Depends(engine_dep),
+):
+    logger.info(
+        "START get_submission – user=%s submissionId=%s",
+        current_user.id, submission_id
+    )
+    start_ts = time.monotonic()
+
+    sub = await engine.find_one(
+        Submission,
+        Submission.id == ObjectId(submission_id),
+        Submission.userId == ObjectId(current_user.id)
+    )
+
+    if not sub:
+        logger.warning(
+            "Submission not found – user=%s submissionId=%s",
+            current_user.id, submission_id
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Submission not found"
+        )
+
+    response = SubmissionResponse(
+        submissionId=str(sub.id),
+        userId=str(sub.userId),
+        problemId=str(sub.problemId),
+        language=sub.language,
+        sourceCode=sub.sourceCode,
+        stdin=sub.stdin,
+        status=sub.status,
+        submittedAt=sub.submittedAt,
+        completedAt=sub.completedAt,
+        result=sub.result,
+        canceled=sub.canceled,
+        createdAt=sub.createdAt,
+        updatedAt=sub.updatedAt
+    )
+    elapsed = time.monotonic() - start_ts
+    logger.info(
+        "END get_submission – user=%s submissionId=%s duration=%.3fs",
+        current_user.id, submission_id, elapsed
+    )
     return response
