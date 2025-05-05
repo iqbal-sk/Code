@@ -11,6 +11,7 @@ from Platform.src.user_management.models import User
 from Platform.src.problem_management.models.problem import Problem
 from Platform.src.submission_management.models.submission import Submission
 from Platform.src.submission_management.requests import SubmissionCreate
+from Platform.src.submission_management.responses import SubmissionSummary
 
 from Platform.src.config.config import config
 
@@ -210,3 +211,121 @@ async def get_user_submissions_for_problem(
 
     logger.info("EXIT get_user_submissions_for_problem")
     return submissions, total
+
+
+async def get_user_submissions(
+    user_id: str,
+    engine: AIOEngine,
+    page: int = 1,
+    limit: int = 10,
+) -> Tuple[List[Submission], int]:
+    logger.info(
+        "ENTER get_user_submissions: user_id=%s page=%d limit=%d",
+        user_id, page, limit
+    )
+
+    # Validate IDs
+    try:
+        user_obj_id = ObjectId(user_id)
+        logger.debug("Parsed user ID: %s", user_obj_id)
+    except Exception:
+        logger.error("Invalid ID format: user_id=%s", user_id)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid user ID format",
+        )
+
+    if page < 1 or limit < 1:
+        logger.warning("Invalid pagination params: page=%d limit=%d", page, limit)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="`page` and `limit` must be positive integers",
+        )
+
+    filters = [
+        Submission.userId == user_obj_id,
+    ]
+    logger.debug("Query filters: %s", filters)
+
+    # 1) total count
+    total = await engine.count(Submission, *filters)
+    logger.info("Total submissions count: %d", total)
+
+    # 2) paged fetch
+    skip = (page - 1) * limit
+    submissions = await engine.find(
+        Submission,
+        *filters,
+        sort=Submission.submittedAt.desc(),
+        skip=skip,
+        limit=limit,
+    )
+    logger.info(
+        "Fetched %d submissions (skip=%d limit=%d)", len(submissions), skip, limit
+    )
+
+    logger.info("EXIT get_user_submissions")
+    return submissions, total
+
+
+async def get_user_submissions_response(
+    user_id: str,
+    engine: AIOEngine,
+    page: int = 1,
+    limit: int = 10,
+) -> List[SubmissionSummary]:
+    """
+    Fetch paginated submissions for a user and return lightweight DTOs
+    including the problem's pId.
+    """
+    logger.info(
+        "ENTER get_user_submissions_response: user_id=%s page=%d limit=%d",
+        user_id, page, limit,
+    )
+
+    # 1) Delegate ID validation, pagination, and fetch to existing helper
+    try:
+        submissions, total = await get_user_submissions(user_id, engine, page, limit)
+        logger.debug("Fetched %d submissions (total=%d)", len(submissions), total)
+    except HTTPException as exc:
+        logger.error(
+            "Error in get_user_submissions for user_id=%s: %s",
+            user_id, exc.detail,
+        )
+        raise
+
+    # 2) Bulk-load Problems to grab each pId
+    problem_ids = {sub.problemId for sub in submissions}
+    logger.debug("Loading Problem docs for IDs: %s", problem_ids)
+    problems = await engine.find(Problem, Problem.id.in_(problem_ids))
+    pId_map = {prob.id: prob.pId for prob in problems}
+    problem_title_map = {prob.id: prob.title for prob in problems}
+    logger.debug("Built pId map: %s", pId_map)
+
+    # 3) Construct response DTOs
+    response: List[SubmissionSummary] = []
+    for sub in submissions:
+        p_id = pId_map.get(sub.problemId)
+        if p_id is None:
+            logger.warning(
+                "No Problem found for submission.problemId=%s; defaulting pId=0",
+                sub.problemId,
+            )
+            p_id = 0
+
+        dto = SubmissionSummary(
+            id=sub.id,
+            userId=sub.userId,
+            problemId=sub.problemId,
+            pId=p_id,
+            status=sub.status,
+            createdAt=sub.createdAt,
+            title=problem_title_map.get(sub.problemId, "Unknown Problem"),
+        )
+        response.append(dto)
+        logger.debug("Appended SubmissionResponse for submission.id=%s", sub.id)
+
+    logger.info(
+        "EXIT get_user_submissions_response: returning %d DTOs", len(response)
+    )
+    return response
