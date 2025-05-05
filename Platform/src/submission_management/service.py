@@ -328,4 +328,6 @@ async def get_user_submissions_response(
     logger.info(
         "EXIT get_user_submissions_response: returning %d DTOs", len(response)
     )
+
+    response.sort(key=lambda x: x.createdAt, reverse=True)
     return response
