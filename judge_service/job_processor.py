@@ -51,6 +51,7 @@ async def process_job(
     try:
         testcases = await fetch_testcases(http_client, problem_id)
         logger.info("Stage 3: Retrieved %d test cases", len(testcases))
+        logger.info("Stage 3: Test cases: %s", testcases)
     except Exception as error:
         logger.error("Stage 3: Failed to fetch test cases for problem %s: %s", problem_id, error, exc_info=True)
         # Mark failed in Mongo and notify
@@ -102,9 +103,26 @@ async def process_job(
             inp = tc.get("input", "")
             exp = tc.get("expectedOutput", "")
         else:
-            inp = ""
-            exp = ""
+            input_path = tc.get("inputPath", "")
+            expected_path = tc.get("outputPath", "")
 
+            try:
+                with open(input_path, 'r') as f:
+                    inp = f.read()
+                logger.debug("Loaded input from %s", input_path)
+            except Exception as e:
+                logger.error("Failed to read input file %s: %s", input_path, e)
+                inp = ""
+
+            try:
+                with open(expected_path, 'r') as f:
+                    exp = f.read()
+                logger.debug("Loaded expected output from %s", expected_path)
+            except Exception as e:
+                logger.error("Failed to read expected output file %s: %s", expected_path, e)
+                exp = ""
+        logger.debug("Stage 4: Input: %s", inp)
+        logger.debug("Stage 4: Expected Output: %s", exp)
         try:
             result = await run_in_sandbox(
                 language=language,
@@ -114,13 +132,15 @@ async def process_job(
                 memory_bytes=submission.memoryLimitB,
             )
 
+            logger.info("Stage 4: Test %d/%d executed, result=%s", idx, len(testcases), result)
+
             # post-process memory-limit verdict...
             verdict = result.get("verdict")
             passed = (
                     verdict == "OK"
                     and result.get("stdout", "").strip() == exp.strip()
             )
-            logger.debug("Stage 4: Test %d verdict=%s passed=%s", idx, verdict, passed)
+            logger.info("Stage 4: Test %d verdict=%s passed=%s", idx, verdict, passed)
 
             details.append(
                 TestDetail(
