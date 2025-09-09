@@ -1,0 +1,128 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: redis_local
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  mongo:
+    image: mongo:6
+    container_name: mongo_local
+    command: ["mongod", "--port", "27018"]
+    ports:
+      - "27018:27018"
+    volumes:
+      - mongo_data:/data/db
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/27018'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  platform:
+    build:
+      context: .
+      dockerfile: docker/platform.Dockerfile
+    container_name: platform_api
+    environment:
+      # Force dev config
+      - ENV_STATE=dev
+      # Point to internal services
+      - DEV_MONGODB_URI=mongodb://mongo:27018
+      - DEV_DB_NAME=coding_platform
+      - DEV_REDIS_URL=redis://redis:6379
+      # Queue key must match judge
+      - DEV_SUBMISSION_QUEUE_KEY=submission_queue
+      # Auth & misc sensible defaults
+      - DEV_JWT_SECRET=dev_secret
+      - DEV_JWT_ALGORITHM=HS256
+      # Use comma-separated list to match validator
+      - DEV_ACCEPTED_LANGUAGES=["python","cpp","java","javascript"]
+      - DEV_TERMINAL=["success","failed","compile_error","timeout"]
+      - DEV_PROBLEM_LIST=https://cses.fi/problemset/
+      - DEV_TEST_CASES=https://cses.fi/problemset/tests/
+      - DEV_LISTING_FILE=https://cses.fi/problemset
+      - DEV_LISTING_URL=https://cses.fi/problemset
+      - DEV_BASE_SITE=https://cses.fi
+      # Shared asset storage location (mounted volume)
+      - DEV_LOCAL_TEST_ASSETS=/data/testcases
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    volumes:
+      - test_assets:/data/testcases
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/docs >/dev/null"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 20s
+
+  judge:
+    build:
+      context: .
+      dockerfile: docker/judge.Dockerfile
+    container_name: judge_worker
+    environment:
+      - ENV_STATE=dev
+      - DEV_MONGO_URI=mongodb://mongo:27018
+      - DEV_DB_NAME=coding_platform
+      - DEV_REDIS_URL=redis://redis:6379
+      - DEV_QUEUE_KEY=submission_queue
+      # Point the judge at Platform by service name
+      - DEV_TESTCASE_API_FORMAT=http://platform:8000/api/v1/problems/{problemId}/test-cases?includeHidden=true
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      platform:
+        condition: service_healthy
+    volumes:
+      # Read-only access to shared test assets
+      - test_assets:/data/testcases:ro
+    restart: unless-stopped
+
+  scraper:
+    build:
+      context: .
+      dockerfile: docker/platform.Dockerfile
+    container_name: platform_scraper
+    environment:
+      - ENV_STATE=dev
+      - DEV_MONGODB_URI=mongodb://mongo:27018
+      - DEV_DB_NAME=coding_platform
+      - DEV_REDIS_URL=redis://redis:6379
+      - DEV_SESSION_ID=${CSES_SESSION_ID:?Set CSES_SESSION_ID in your environment to run scraper}
+      - DEV_PROBLEM_LIST=https://cses.fi/problemset/
+      - DEV_TEST_CASES=https://cses.fi/problemset/tests/
+      - DEV_LISTING_FILE=https://cses.fi/problemset
+      - DEV_LISTING_URL=https://cses.fi/problemset
+      - DEV_BASE_SITE=https://cses.fi
+      - DEV_SCRAPE_LIMIT=5
+      - DEV_LOCAL_TEST_ASSETS=/data/testcases
+    command: ["python", "Platform/src/problem_management/services/scraping_service.py"]
+    depends_on:
+      mongo:
+        condition: service_healthy
+    volumes:
+      - test_assets:/data/testcases
+    restart: "no"
+
+volumes:
+  mongo_data:
+  test_assets:
